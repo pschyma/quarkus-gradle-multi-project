@@ -1,7 +1,7 @@
 import io.quarkus.gradle.tasks.QuarkusTestConfig
 
 plugins {
-  id("io.quarkus") version ("1.3.0.CR1")
+  id("io.quarkus")
 }
 
 val quarkusPlatformGroupId: String by project
