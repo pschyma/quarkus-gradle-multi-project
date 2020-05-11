@@ -11,6 +11,7 @@ allprojects {
   group = "com.example"
 
   repositories {
+    mavenLocal()
     mavenCentral()
     jcenter()
   }
@@ -47,8 +48,8 @@ configure(subprojects.filter { it.name != "platform"}) {
   }
 
   configure<JavaPluginExtension> {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
 
     withJavadocJar()
     withSourcesJar()

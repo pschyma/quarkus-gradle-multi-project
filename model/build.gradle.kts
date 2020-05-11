@@ -1,5 +1,11 @@
+plugins {
+  kotlin("jvm")
+}
+
 dependencies {
   implementation(platform(project(":platform")))
+
+  implementation(kotlin("stdlib-jdk8"))
 
   compileOnly("com.google.code.findbugs:jsr305")
   compileOnly("jakarta.validation:jakarta.validation-api")

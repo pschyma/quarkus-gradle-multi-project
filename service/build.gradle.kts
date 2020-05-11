@@ -1,137 +1,129 @@
-import io.quarkus.gradle.tasks.QuarkusTestConfig
-
 plugins {
+  kotlin("jvm")
+  kotlin("plugin.allopen")
+
   id("io.quarkus")
+
+  jacoco
 }
 
-val quarkusPlatformGroupId: String by project
-val quarkusPlatformArtifactId: String by project
-val quarkusPlatformVersion: String by project
-
-val jacoco by configurations.registering
-val jacocoRuntime by configurations.registering
+val quarkusPlatformGroupId: String by ext
+val quarkusPlatformArtifactId: String by ext
+val quarkusPlatformVersion: String by ext
 
 dependencies {
-  implementation(platform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}"))
   implementation(platform(project(":platform")))
-
-  compileOnly("com.google.code.findbugs:jsr305:3.0.2")
-
   implementation(project(":model"))
 
+  implementation(kotlin("stdlib-jdk8"))
+
+  implementation(platform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}"))
+  implementation("io.quarkus:quarkus-kotlin")
   implementation("io.quarkus:quarkus-resteasy")
-  implementation("io.quarkus:quarkus-resteasy-jsonb")
+  implementation("io.quarkus:quarkus-resteasy-jackson")
   implementation("io.quarkus:quarkus-smallrye-openapi")
   implementation("io.quarkus:quarkus-smallrye-fault-tolerance")
   implementation("io.quarkus:quarkus-smallrye-health")
   implementation("io.quarkus:quarkus-smallrye-metrics")
   implementation("io.quarkus:quarkus-smallrye-context-propagation")
   implementation("io.quarkus:quarkus-jdbc-postgresql")
-  implementation("io.quarkus:quarkus-hibernate-orm")
+  implementation("io.quarkus:quarkus-flyway")
   implementation("io.quarkus:quarkus-hibernate-validator")
 
-  testImplementation("io.quarkus:quarkus-junit5")
-  testImplementation("io.quarkus:quarkus-test-h2")
-  testImplementation("org.assertj:assertj-core")
-  testImplementation("io.rest-assured:rest-assured:4.2.0")
+  implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+  implementation("org.zalando:problem")
+  implementation("org.zalando:jackson-datatype-problem")
 
-  "jacoco"("org.jacoco:org.jacoco.ant:0.8.5:nodeps")
-  "jacocoRuntime"("org.jacoco:org.jacoco.agent:0.8.5:runtime")
+  implementation(platform("org.jdbi:jdbi3-bom:3.13.0"))
+  implementation("org.jdbi:jdbi3-core")
+  implementation("org.jdbi:jdbi3-kotlin")
+  implementation("org.jdbi:jdbi3-kotlin-sqlobject")
+  implementation("org.jdbi:jdbi3-postgres")
+
+  testImplementation("io.quarkus:quarkus-junit5")
+  testImplementation("org.assertj:assertj-core")
+  testImplementation("io.rest-assured:rest-assured:4.3.0")
+  testImplementation("io.rest-assured:kotlin-extensions:4.3.0")
+  testImplementation("org.mockito:mockito-core")
+  testImplementation("org.mockito:mockito-junit-jupiter")
+  testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:2.2.0")
+
+  testImplementation("org.testcontainers:testcontainers:1.14.1")
+  testImplementation("org.testcontainers:postgresql:1.14.1")
+  testImplementation("org.testcontainers:junit-jupiter:1.14.1")
 }
 
-version = "1.0.0-SNAPSHOT"
+allOpen {
+  annotation("javax.enterprise.context.ApplicationScoped")
+  annotation("javax.ws.rs.Path")
+  annotation("io.quarkus.test.junit.QuarkusTest")
+}
+
+val outputDir = file("$projectDir/build/classes/kotlin/main")
+
+quarkus {
+  setOutputDirectory(outputDir.absolutePath)
+}
 
 tasks {
-  withType<JavaCompile> {
-    options.compilerArgs.add("-parameters")
-  }
-
-  create("instrument") {
-    dependsOn(classes)
-
-    val main by sourceSets
-    val mainJavaOutputDir = main.java.outputDir
-    val instrumentedDirectory = layout.buildDirectory.dir("$mainJavaOutputDir-instrumented").get()
-
-    doLast {
-      ant.withGroovyBuilder {
-        instrumentedDirectory.asFile.deleteRecursively()
-
-        "taskdef"("name" to "instrument", "classname" to "org.jacoco.ant.InstrumentTask", "classpath" to jacoco.get().asPath)
-
-        "instrument"("destDir" to instrumentedDirectory.asFile) {
-          "fileset"("dir" to mainJavaOutputDir)
-        }
-      }
-    }
-
-    outputs.dirs(instrumentedDirectory)
-  }
-
-  create("report") {
-    dependsOn("instrument", test)
-
-    val main by sourceSets
-
-    doLast {
-      ant.withGroovyBuilder {
-        "taskdef"("name" to "report", "classname" to "org.jacoco.ant.ReportTask", "classpath" to jacoco.get().asPath)
-
-        "report"() {
-          "executiondata" {
-            "file"("file" to "$buildDir/jacoco/tests.exec")
-          }
-          "structure"("name" to "Example") {
-            "classfiles" {
-              main.output.classesDirs.onEach {
-                "fileset"("dir" to it)
-              }
-            }
-            "sourcefiles" {
-              "fileset"("dir" to "src/main/java")
-            }
-          }
-          "html"("destdir" to "$buildDir/reports/jacoco")
-        }
-      }
-    }
-  }
-
   test {
     useJUnitPlatform()
 
     jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
     jvmArgs("--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED")
+
+    systemProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager")
+
+    reports {
+      junitXml.isEnabled = true
+      html.isEnabled = true
+    }
   }
 
-  create<JacocoCoverageVerification>("verify") {
-    dependsOn("instrument", test)
+  quarkusDev {
+    setSourceDir("$projectDir/src/main/kotlin")
+  }
 
-    val main by sourceSets
+  create("instrument") {
+    dependsOn(classes)
+    finalizedBy(test)
 
-    jacocoClasspath = layout.files(jacoco)
+    val jacocoAnt by configurations
+    val originalClasses = file("$outputDir-orig")
 
-    executionData.from("$buildDir/jacoco/tests.exec")
-    allClassDirs.minus(main.java.outputDir)
-    allClassDirs.plus("${main.java.outputDir}-instrumented")
+    doLast {
+      originalClasses.deleteRecursively()
+      outputDir.renameTo(originalClasses)
+
+      ant.withGroovyBuilder {
+        "taskdef"("name" to "instrument", "classname" to "org.jacoco.ant.InstrumentTask", "classpath" to jacocoAnt.asPath)
+
+        "instrument"("destDir" to outputDir) {
+          "fileset"("dir" to originalClasses)
+        }
+      }
+    }
+  }
+
+  create("restore") {
+    dependsOn("instrument")
+
+    val originalClasses = file("$outputDir-orig")
+
+    doLast {
+      outputDir.deleteRecursively()
+      originalClasses.renameTo(outputDir)
+    }
+  }
+
+  jacocoTestReport {
+    dependsOn("instrument", test, "restore")
+  }
+
+  jacocoTestCoverageVerification {
+    dependsOn("instrument", test, "restore")
 
     violationRules {
-      rule {
-        limit {
-          counter = "LINE"
-          value = "COVEREDRATIO"
-          minimum = "1.0".toBigDecimal()
-        }
-      }
-      rule {
-        element = "BUNDLE"
-        excludes = listOf("*Test")
-        limit {
-          counter = "CLASS"
-          value = "MISSEDCOUNT"
-          maximum = "0".toBigDecimal()
-        }
-      }
       rule {
         element = "CLASS"
         limit {
@@ -160,7 +152,7 @@ tasks {
         limit {
           counter = "COMPLEXITY"
           value = "TOTALCOUNT"
-          maximum = "5".toBigDecimal()
+          maximum = "12".toBigDecimal()
         }
       }
     }
@@ -169,21 +161,12 @@ tasks {
 
 gradle.taskGraph.whenReady {
   val instrument = tasks.named("instrument").get()
+
   if (hasTask(instrument)) {
-    val main by sourceSets
+    val originalClasses = file("$outputDir-orig")
 
-    tasks {
-      withType<QuarkusTestConfig>() {
-        finalizedBy(instrument)
-      }
-
-      withType<Test>() {
-        doFirst {
-          systemProperty("jacoco-agent.destfile", buildDir.path + "/jacoco/tests.exec")
-          classpath = layout.files(instrument.outputs.files, classpath, jacocoRuntime)
-          classpath.minus(main.java.outputDir)
-        }
-      }
+    tasks.test.configure {
+      classpath = layout.files(originalClasses, classpath.minus(outputDir))
     }
   }
 }
